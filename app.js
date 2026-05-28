@@ -23,9 +23,12 @@ const resultUnit = document.querySelector("#result-unit");
 const formulaText = document.querySelector("#formula-text");
 const rateSummary = document.querySelector("#rate-summary");
 const statusLine = document.querySelector("#status-line");
+const quickTableBody = document.querySelector("#quick-table-body");
+const quickTableRate = document.querySelector("#quick-table-rate");
 
 let exchangeRate = null;
 let rateMode = "loading";
+let lastCalculatedResult = null;
 
 const formatResult = new Intl.NumberFormat("zh-CN", {
   minimumFractionDigits: 2,
@@ -37,8 +40,16 @@ const formatRate = new Intl.NumberFormat("zh-CN", {
   maximumFractionDigits: 4,
 });
 
+const formatUsd = new Intl.NumberFormat("zh-CN", {
+  maximumFractionDigits: 0,
+});
+
 directionInputs.forEach((input) => {
   input.addEventListener("change", () => {
+    if (Number.isFinite(lastCalculatedResult) && lastCalculatedResult > 0) {
+      priceInput.value = lastCalculatedResult.toFixed(2);
+    }
+
     updateLabels();
     calculate();
   });
@@ -50,9 +61,11 @@ rateInput.addEventListener("input", () => {
     exchangeRate = Number(rateInput.value);
   }
   calculate();
+  updateQuickTable();
 });
 
 updateLabels();
+renderQuickTable();
 loadExchangeRate();
 
 function getDirection() {
@@ -93,6 +106,7 @@ async function loadExchangeRate() {
       rateSummary.textContent = `自动汇率：1 USD = ${formatRate.format(rate)} CNY`;
       setStatus("自动汇率已获取", "ready");
       calculate();
+      updateQuickTable();
       return;
     } catch {
       // Try the next public source before asking for manual input.
@@ -105,6 +119,7 @@ async function loadExchangeRate() {
   rateSummary.textContent = "自动汇率暂不可用，请手动输入 USD/CNY";
   setStatus("无法自动获取汇率，请手动输入", "error");
   calculate();
+  updateQuickTable();
 }
 
 function calculate() {
@@ -113,6 +128,7 @@ function calculate() {
   const isUsdToCny = getDirection() === "usd-to-cny";
 
   if (!priceInput.value) {
+    lastCalculatedResult = null;
     setResult("--");
     if (rateMode !== "loading") {
       setStatus(rateMode === "manual" ? "请输入价格和汇率" : "请输入黄金价格", "idle");
@@ -121,12 +137,14 @@ function calculate() {
   }
 
   if (!Number.isFinite(price) || price <= 0) {
+    lastCalculatedResult = null;
     setResult("--");
     setStatus("黄金价格必须大于 0", "error");
     return;
   }
 
   if (!Number.isFinite(rate) || rate <= 0) {
+    lastCalculatedResult = null;
     setResult("--");
     setStatus(rateMode === "manual" ? "美元兑人民币汇率必须大于 0" : "正在等待自动汇率", "error");
     return;
@@ -136,6 +154,7 @@ function calculate() {
     ? (price * rate) / TROY_OUNCE_GRAMS
     : (price * TROY_OUNCE_GRAMS) / rate;
 
+  lastCalculatedResult = result;
   setResult(formatResult.format(result));
   setStatus("已完成实时换算", "ready");
 }
@@ -147,4 +166,41 @@ function setResult(value) {
 function setStatus(message, state) {
   statusLine.textContent = message;
   statusLine.dataset.state = state;
+}
+
+function renderQuickTable() {
+  for (let usdPrice = 4000; usdPrice <= 6000; usdPrice += 100) {
+    const row = document.createElement("tr");
+    const usdCell = document.createElement("td");
+    const cnyCell = document.createElement("td");
+
+    usdCell.textContent = formatUsd.format(usdPrice);
+    cnyCell.textContent = "--";
+    cnyCell.dataset.usdPrice = String(usdPrice);
+
+    row.append(usdCell, cnyCell);
+    quickTableBody.append(row);
+  }
+
+  updateQuickTable();
+}
+
+function updateQuickTable() {
+  const rate = rateMode === "manual" ? Number(rateInput.value) : exchangeRate;
+  const hasValidRate = Number.isFinite(rate) && rate > 0;
+
+  quickTableRate.textContent = hasValidRate
+    ? `按 1 USD = ${formatRate.format(rate)} CNY`
+    : "等待汇率";
+
+  quickTableBody.querySelectorAll("[data-usd-price]").forEach((cell) => {
+    if (!hasValidRate) {
+      cell.textContent = "--";
+      return;
+    }
+
+    const usdPrice = Number(cell.dataset.usdPrice);
+    const cnyPrice = (usdPrice * rate) / TROY_OUNCE_GRAMS;
+    cell.textContent = formatResult.format(cnyPrice);
+  });
 }
