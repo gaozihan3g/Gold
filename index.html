@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>黄金价格换算器</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="converter-panel" aria-labelledby="page-title">
+        <header class="app-header">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M5 16h14" />
+              <path d="M7 16 10 7h4l3 9" />
+              <path d="M9 11h6" />
+            </svg>
+          </span>
+          <div>
+            <p class="eyebrow">Gold Converter</p>
+            <h1 id="page-title">黄金价格换算器</h1>
+          </div>
+        </header>
+
+        <form class="converter-form" id="converter-form" autocomplete="off">
+          <fieldset class="direction-group">
+            <legend>换算方向</legend>
+            <div class="segmented-control" role="radiogroup" aria-label="换算方向">
+              <label>
+                <input type="radio" name="direction" value="usd-to-cny" checked />
+                <span>美元/盎司 → 人民币/克</span>
+              </label>
+              <label>
+                <input type="radio" name="direction" value="cny-to-usd" />
+                <span>人民币/克 → 美元/盎司</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <label class="field" for="price-input">
+            <span id="price-label">美元计价黄金价格</span>
+            <div class="input-shell">
+              <input
+                id="price-input"
+                type="number"
+                inputmode="decimal"
+                min="0"
+                step="0.01"
+                placeholder="2300.00"
+                aria-describedby="status-line"
+              />
+              <span id="price-unit">美元/盎司</span>
+            </div>
+          </label>
+
+          <label class="field is-hidden" id="manual-rate-field" for="rate-input">
+            <span>美元兑人民币汇率</span>
+            <div class="input-shell">
+              <input
+                id="rate-input"
+                type="number"
+                inputmode="decimal"
+                min="0"
+                step="0.0001"
+                placeholder="7.2000"
+                aria-describedby="status-line"
+              />
+              <span>CNY/USD</span>
+            </div>
+          </label>
+
+          <div class="result-strip" aria-live="polite">
+            <div>
+              <span class="result-label">换算结果</span>
+              <strong id="result-number">--</strong>
+              <small id="result-unit">人民币/克</small>
+            </div>
+            <p id="rate-summary">正在获取 USD/CNY 汇率</p>
+          </div>
+
+          <p class="status-line" id="status-line" role="status">正在获取自动汇率</p>
+          <p class="formula-line" id="formula-text">人民币/克 = 美元/盎司 × 汇率 ÷ 31.1034768</p>
+        </form>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
