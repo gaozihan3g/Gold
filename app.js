@@ -79,6 +79,7 @@ const spotPriceStatus = document.querySelector("#spot-price-status");
 const spotChartLine = document.querySelector("#spot-chart-line");
 const spotChartChange = document.querySelector("#spot-chart-change");
 const spotChartMeta = document.querySelector("#spot-chart-meta");
+const refreshGoldButton = document.querySelector("#refresh-gold-button");
 
 let exchangeRate = null;
 let rateMode = "loading";
@@ -123,6 +124,8 @@ rateInput.addEventListener("input", () => {
   updateSpotGoldDisplay();
 });
 
+refreshGoldButton.addEventListener("click", refreshGoldData);
+
 updateLabels();
 renderQuickTable();
 renderSpotChart();
@@ -143,14 +146,24 @@ function updateLabels() {
   priceUnit.textContent = isUsdToCny ? "美元/盎司" : "人民币/克";
   resultUnit.textContent = isUsdToCny ? "人民币/克" : "美元/盎司";
   formulaText.textContent = isUsdToCny
-    ? "人民币/克 = 美元/盎司 × 汇率 ÷ 31.1034768"
-    : "美元/盎司 = 人民币/克 × 31.1034768 ÷ 汇率";
+    ? "USD/oz × 汇率 ÷ 31.1034768 = CNY/g"
+    : "CNY/g × 31.1034768 ÷ 汇率 = USD/oz";
   priceInput.placeholder = isUsdToCny ? "2300.00" : "530.00";
 }
 
+async function refreshGoldData() {
+  refreshGoldButton.disabled = true;
+  refreshGoldButton.dataset.loading = "true";
+
+  await Promise.allSettled([loadSpotGoldPrice(), loadGoldChart()]);
+
+  refreshGoldButton.disabled = false;
+  refreshGoldButton.dataset.loading = "false";
+}
+
 async function loadExchangeRate() {
-  setStatus("正在获取自动汇率", "idle");
-  rateSummary.textContent = "正在获取 USD/CNY 汇率";
+  setStatus("待汇率", "idle");
+  rateSummary.textContent = "获取 USD/CNY 中";
 
   for (const source of RATE_SOURCES) {
     try {
@@ -167,8 +180,8 @@ async function loadExchangeRate() {
       exchangeRate = rate;
       rateMode = "auto";
       manualRateField.classList.add("is-hidden");
-      rateSummary.textContent = `自动汇率：1 USD = ${formatRate.format(rate)} CNY`;
-      setStatus("自动汇率已获取", "ready");
+      rateSummary.textContent = `自动 USD/CNY ${formatRate.format(rate)}`;
+      setStatus("汇率已更新", "ready");
       calculate();
       updateQuickTable();
       updateSpotGoldDisplay();
@@ -181,8 +194,8 @@ async function loadExchangeRate() {
   exchangeRate = Number(rateInput.value);
   rateMode = "manual";
   manualRateField.classList.remove("is-hidden");
-  rateSummary.textContent = "自动汇率暂不可用，请手动输入 USD/CNY";
-  setStatus("无法自动获取汇率，请手动输入", "error");
+  rateSummary.textContent = "手动 USD/CNY";
+  setStatus("请输入汇率", "error");
   calculate();
   updateQuickTable();
   updateSpotGoldDisplay();
@@ -262,7 +275,7 @@ function calculate() {
     lastCalculatedResult = null;
     setResult("--");
     if (rateMode !== "loading") {
-      setStatus(rateMode === "manual" ? "请输入价格和汇率" : "请输入黄金价格", "idle");
+      setStatus(rateMode === "manual" ? "输入价格和汇率" : "输入价格", "idle");
     }
     return;
   }
@@ -270,14 +283,14 @@ function calculate() {
   if (!Number.isFinite(price) || price <= 0) {
     lastCalculatedResult = null;
     setResult("--");
-    setStatus("黄金价格必须大于 0", "error");
+    setStatus("价格需大于 0", "error");
     return;
   }
 
   if (!Number.isFinite(rate) || rate <= 0) {
     lastCalculatedResult = null;
     setResult("--");
-    setStatus(rateMode === "manual" ? "美元兑人民币汇率必须大于 0" : "正在等待自动汇率", "error");
+    setStatus(rateMode === "manual" ? "汇率需大于 0" : "待汇率", "error");
     return;
   }
 
@@ -287,7 +300,7 @@ function calculate() {
 
   lastCalculatedResult = result;
   setResult(formatResult.format(result));
-  setStatus("已完成实时换算", "ready");
+  setStatus("已换算", "ready");
 }
 
 function setResult(value) {
