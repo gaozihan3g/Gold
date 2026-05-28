@@ -1,4 +1,5 @@
 const TROY_OUNCE_GRAMS = 31.1034768;
+const GOLD_REFRESH_MS = 60000;
 const RATE_SOURCES = [
   {
     name: "open.er-api.com",
@@ -9,6 +10,53 @@ const RATE_SOURCES = [
     name: "frankfurter.app",
     url: "https://api.frankfurter.app/latest?from=USD&to=CNY",
     parse: (data) => data?.rates?.CNY,
+  },
+];
+const GOLD_CHART_SOURCE = {
+  name: "BiQuote XAUUSD",
+  url:
+    "https://api.codetabs.com/v1/proxy?quest=" +
+    encodeURIComponent("https://biquote.io/api/XAUUSD/ohlc?interval=5m&limit=300"),
+  parse: (data) => {
+    const bars = Array.isArray(data?.bars) ? data.bars : [];
+
+    return bars
+      .map((bar) => ({
+        time: new Date(bar.openTime).getTime(),
+        price: Number(bar.close),
+      }))
+      .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.price) && point.price > 0)
+      .sort((a, b) => a.time - b.time);
+  },
+};
+const GOLD_PRICE_SOURCES = [
+  {
+    name: "BiQuote XAUUSD",
+    url: "https://biquote.io/api/XAUUSD",
+    parse: (data) => {
+      const mid = Number(data?.mid);
+      if (Number.isFinite(mid) && mid > 0) {
+        return mid;
+      }
+
+      const bid = Number(data?.bid);
+      const ask = Number(data?.ask);
+      if (Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0) {
+        return (bid + ask) / 2;
+      }
+
+      return data?.price;
+    },
+  },
+  {
+    name: "gold-api.com",
+    url: "https://api.gold-api.com/price/XAU",
+    parse: (data) => data?.price,
+  },
+  {
+    name: "goldprice.org",
+    url: "https://data-asg.goldprice.org/dbXRates/USD",
+    parse: (data) => data?.items?.[0]?.xauPrice,
   },
 ];
 
@@ -25,10 +73,20 @@ const rateSummary = document.querySelector("#rate-summary");
 const statusLine = document.querySelector("#status-line");
 const quickTableBody = document.querySelector("#quick-table-body");
 const quickTableRate = document.querySelector("#quick-table-rate");
+const spotUsdPrice = document.querySelector("#spot-usd-price");
+const spotCnyPrice = document.querySelector("#spot-cny-price");
+const spotPriceStatus = document.querySelector("#spot-price-status");
+const spotChartLine = document.querySelector("#spot-chart-line");
+const spotChartChange = document.querySelector("#spot-chart-change");
+const spotChartMeta = document.querySelector("#spot-chart-meta");
 
 let exchangeRate = null;
 let rateMode = "loading";
 let lastCalculatedResult = null;
+let spotGoldUsd = null;
+let spotGoldSource = "";
+let goldChartPoints = [];
+let goldChartError = "";
 
 const formatResult = new Intl.NumberFormat("zh-CN", {
   minimumFractionDigits: 2,
@@ -62,11 +120,17 @@ rateInput.addEventListener("input", () => {
   }
   calculate();
   updateQuickTable();
+  updateSpotGoldDisplay();
 });
 
 updateLabels();
 renderQuickTable();
+renderSpotChart();
+loadSpotGoldPrice();
+loadGoldChart();
 loadExchangeRate();
+setInterval(loadSpotGoldPrice, GOLD_REFRESH_MS);
+setInterval(loadGoldChart, GOLD_REFRESH_MS);
 
 function getDirection() {
   return document.querySelector('input[name="direction"]:checked').value;
@@ -107,6 +171,7 @@ async function loadExchangeRate() {
       setStatus("自动汇率已获取", "ready");
       calculate();
       updateQuickTable();
+      updateSpotGoldDisplay();
       return;
     } catch {
       // Try the next public source before asking for manual input.
@@ -120,6 +185,72 @@ async function loadExchangeRate() {
   setStatus("无法自动获取汇率，请手动输入", "error");
   calculate();
   updateQuickTable();
+  updateSpotGoldDisplay();
+}
+
+async function loadSpotGoldPrice() {
+  spotPriceStatus.textContent = "正在获取金价";
+  spotPriceStatus.dataset.state = "idle";
+
+  for (const source of GOLD_PRICE_SOURCES) {
+    try {
+      const response = await fetchWithTimeout(source.url, 8000);
+      if (!response.ok) {
+        throw new Error(`${source.name} 响应异常`);
+      }
+
+      const price = Number(source.parse(await response.json()));
+      if (!Number.isFinite(price) || price <= 0) {
+        throw new Error(`${source.name} 未返回有效金价`);
+      }
+
+      spotGoldUsd = price;
+      spotGoldSource = source.name;
+      updateSpotGoldDisplay();
+      return;
+    } catch {
+      // Try the next public source if one is configured.
+    }
+  }
+
+  spotGoldUsd = null;
+  spotGoldSource = "";
+  updateSpotGoldDisplay();
+  spotPriceStatus.textContent = "暂时无法获取金价";
+  spotPriceStatus.dataset.state = "error";
+}
+
+async function loadGoldChart() {
+  try {
+    const response = await fetchWithTimeout(GOLD_CHART_SOURCE.url, 15000);
+    if (!response.ok) {
+      throw new Error(`${GOLD_CHART_SOURCE.name} 响应异常`);
+    }
+
+    const points = GOLD_CHART_SOURCE.parse(await response.json());
+    if (points.length < 2) {
+      throw new Error(`${GOLD_CHART_SOURCE.name} 历史数据不足`);
+    }
+
+    goldChartPoints = points;
+    goldChartError = "";
+    renderSpotChart();
+  } catch {
+    goldChartPoints = [];
+    goldChartError = "数据源暂不可用";
+    renderSpotChart("error");
+  }
+}
+
+function fetchWithTimeout(url, timeoutMs) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error("请求超时")), timeoutMs);
+  });
+
+  return Promise.race([fetch(url, { cache: "no-store" }), timeout]).finally(() => {
+    clearTimeout(timeoutId);
+  });
 }
 
 function calculate() {
@@ -203,4 +334,66 @@ function updateQuickTable() {
     const cnyPrice = (usdPrice * rate) / TROY_OUNCE_GRAMS;
     cell.textContent = formatResult.format(cnyPrice);
   });
+}
+
+function updateSpotGoldDisplay() {
+  const rate = rateMode === "manual" ? Number(rateInput.value) : exchangeRate;
+  const hasGoldPrice = Number.isFinite(spotGoldUsd) && spotGoldUsd > 0;
+  const hasValidRate = Number.isFinite(rate) && rate > 0;
+
+  spotUsdPrice.textContent = hasGoldPrice ? formatResult.format(spotGoldUsd) : "--";
+
+  if (hasGoldPrice && hasValidRate) {
+    const cnyPerGram = (spotGoldUsd * rate) / TROY_OUNCE_GRAMS;
+    spotCnyPrice.textContent = formatResult.format(cnyPerGram);
+    spotPriceStatus.textContent = `已更新：${spotGoldSource}`;
+    spotPriceStatus.dataset.state = "ready";
+    return;
+  }
+
+  spotCnyPrice.textContent = "--";
+
+  if (hasGoldPrice) {
+    spotPriceStatus.textContent = "金价已获取，等待汇率";
+    spotPriceStatus.dataset.state = "idle";
+  }
+}
+
+function renderSpotChart(state = "loading") {
+  if (!goldChartPoints.length) {
+    spotChartLine.setAttribute("d", "");
+    spotChartLine.dataset.trend = "flat";
+    spotChartChange.textContent = "--";
+    spotChartChange.dataset.trend = "flat";
+    spotChartMeta.textContent =
+      state === "error"
+        ? `暂时无法获取 XAU/USD 现货曲线：${goldChartError}`
+        : "正在加载 XAU/USD 现货曲线";
+    return;
+  }
+
+  const prices = goldChartPoints.map((point) => point.price);
+  const firstPrice = prices[0];
+  const lastPrice = prices.at(-1);
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
+  const priceRange = maxPrice - minPrice;
+  const xStep = 640 / (goldChartPoints.length - 1);
+  const points = goldChartPoints.map((point, index) => {
+    const x = index * xStep;
+    const y = priceRange === 0 ? 90 : 160 - ((point.price - minPrice) / priceRange) * 140;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  });
+
+  spotChartLine.setAttribute("d", `M ${points.join(" L ")}`);
+
+  const change = lastPrice - firstPrice;
+  const changePercent = firstPrice > 0 ? (change / firstPrice) * 100 : 0;
+  const trend = change > 0 ? "up" : change < 0 ? "down" : "flat";
+  const sign = change > 0 ? "+" : "";
+
+  spotChartLine.dataset.trend = trend;
+  spotChartChange.dataset.trend = trend;
+  spotChartChange.textContent = `${sign}${formatResult.format(change)} (${sign}${changePercent.toFixed(2)}%)`;
+  spotChartMeta.textContent = `XAU/USD 现货，过去 24 小时，${goldChartPoints.length} 个 5 分钟点`;
 }
