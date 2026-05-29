@@ -12,11 +12,19 @@ const RATE_SOURCES = [
     parse: (data) => data?.rates?.CNY,
   },
 ];
+const GOLD_CHART_RANGES = {
+  "1D": { label: "1D", title: "过去 1 天", interval: "5m", limit: 300, pointLabel: " 5 分钟点" },
+  "1W": { label: "1W", title: "过去 1 周", interval: "30m", limit: 336, pointLabel: " 30 分钟点" },
+  "1M": { label: "1M", title: "过去 1 个月", interval: "4h", limit: 186, pointLabel: " 4 小时点" },
+  "3M": { label: "3M", title: "过去 3 个月", interval: "1d", limit: 95, pointLabel: "日线点" },
+  "6M": { label: "6M", title: "过去 6 个月", interval: "1d", limit: 190, pointLabel: "日线点" },
+  "1Y": { label: "1Y", title: "过去 1 年", interval: "1d", limit: 370, pointLabel: "日线点" },
+};
 const GOLD_CHART_SOURCE = {
   name: "BiQuote XAUUSD",
-  url:
+  url: (range) =>
     "https://api.codetabs.com/v1/proxy?quest=" +
-    encodeURIComponent("https://biquote.io/api/XAUUSD/ohlc?interval=5m&limit=300"),
+    encodeURIComponent(`https://biquote.io/api/XAUUSD/ohlc?interval=${range.interval}&limit=${range.limit}`),
   parse: (data) => {
     const bars = Array.isArray(data?.bars) ? data.bars : [];
 
@@ -76,10 +84,13 @@ const quickTableRate = document.querySelector("#quick-table-rate");
 const spotUsdPrice = document.querySelector("#spot-usd-price");
 const spotCnyPrice = document.querySelector("#spot-cny-price");
 const spotPriceStatus = document.querySelector("#spot-price-status");
+const spotChartTitle = document.querySelector("#spot-chart-title");
 const spotChartLine = document.querySelector("#spot-chart-line");
+const spotChartMarkers = document.querySelector("#spot-chart-markers");
 const spotChartChange = document.querySelector("#spot-chart-change");
 const spotChartMeta = document.querySelector("#spot-chart-meta");
 const refreshGoldButton = document.querySelector("#refresh-gold-button");
+const chartRangeButtons = document.querySelectorAll("[data-chart-range]");
 
 let exchangeRate = null;
 let rateMode = "loading";
@@ -88,6 +99,8 @@ let spotGoldUsd = null;
 let spotGoldSource = "";
 let goldChartPoints = [];
 let goldChartError = "";
+let activeChartRangeKey = "1D";
+let goldChartRequestId = 0;
 
 const formatResult = new Intl.NumberFormat("zh-CN", {
   minimumFractionDigits: 2,
@@ -122,11 +135,18 @@ rateInput.addEventListener("input", () => {
   calculate();
   updateQuickTable();
   updateSpotGoldDisplay();
+  renderSpotChart();
 });
 
 refreshGoldButton.addEventListener("click", refreshGoldData);
+chartRangeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    setChartRange(button.dataset.chartRange);
+  });
+});
 
 updateLabels();
+updateChartRangeButtons();
 renderQuickTable();
 renderSpotChart();
 loadSpotGoldPrice();
@@ -185,6 +205,7 @@ async function loadExchangeRate() {
       calculate();
       updateQuickTable();
       updateSpotGoldDisplay();
+      renderSpotChart();
       return;
     } catch {
       // Try the next public source before asking for manual input.
@@ -199,6 +220,7 @@ async function loadExchangeRate() {
   calculate();
   updateQuickTable();
   updateSpotGoldDisplay();
+  renderSpotChart();
 }
 
 async function loadSpotGoldPrice() {
@@ -233,14 +255,31 @@ async function loadSpotGoldPrice() {
   spotPriceStatus.dataset.state = "error";
 }
 
-async function loadGoldChart() {
+async function loadGoldChart({ showLoading = false } = {}) {
+  const requestId = ++goldChartRequestId;
+  const chartRange = getActiveChartRange();
+
+  if (showLoading || !goldChartPoints.length) {
+    goldChartPoints = [];
+    goldChartError = "";
+    renderSpotChart();
+  }
+
   try {
-    const response = await fetchWithTimeout(GOLD_CHART_SOURCE.url, 15000);
+    const response = await fetchWithTimeout(GOLD_CHART_SOURCE.url(chartRange), 15000);
+    if (requestId !== goldChartRequestId) {
+      return;
+    }
+
     if (!response.ok) {
       throw new Error(`${GOLD_CHART_SOURCE.name} 响应异常`);
     }
 
     const points = GOLD_CHART_SOURCE.parse(await response.json());
+    if (requestId !== goldChartRequestId) {
+      return;
+    }
+
     if (points.length < 2) {
       throw new Error(`${GOLD_CHART_SOURCE.name} 历史数据不足`);
     }
@@ -249,6 +288,10 @@ async function loadGoldChart() {
     goldChartError = "";
     renderSpotChart();
   } catch {
+    if (requestId !== goldChartRequestId) {
+      return;
+    }
+
     goldChartPoints = [];
     goldChartError = "数据源暂不可用";
     renderSpotChart("error");
@@ -372,16 +415,42 @@ function updateSpotGoldDisplay() {
   }
 }
 
+function getActiveChartRange() {
+  return GOLD_CHART_RANGES[activeChartRangeKey] || GOLD_CHART_RANGES["1D"];
+}
+
+function setChartRange(rangeKey) {
+  if (!GOLD_CHART_RANGES[rangeKey] || activeChartRangeKey === rangeKey) {
+    return;
+  }
+
+  activeChartRangeKey = rangeKey;
+  updateChartRangeButtons();
+  loadGoldChart({ showLoading: true });
+}
+
+function updateChartRangeButtons() {
+  chartRangeButtons.forEach((button) => {
+    const isActive = button.dataset.chartRange === activeChartRangeKey;
+    button.dataset.active = String(isActive);
+    button.setAttribute("aria-selected", String(isActive));
+  });
+}
+
 function renderSpotChart(state = "loading") {
+  const chartRange = getActiveChartRange();
+  spotChartTitle.textContent = `现货${chartRange.title}`;
+
   if (!goldChartPoints.length) {
     spotChartLine.setAttribute("d", "");
+    spotChartMarkers.replaceChildren();
     spotChartLine.dataset.trend = "flat";
     spotChartChange.textContent = "--";
     spotChartChange.dataset.trend = "flat";
     spotChartMeta.textContent =
       state === "error"
-        ? `暂时无法获取 XAU/USD 现货曲线：${goldChartError}`
-        : "正在加载 XAU/USD 现货曲线";
+        ? `暂时无法获取 XAU/USD ${chartRange.title}曲线：${goldChartError}`
+        : `正在加载 XAU/USD ${chartRange.title}曲线`;
     return;
   }
 
@@ -392,13 +461,18 @@ function renderSpotChart(state = "loading") {
   const maxPrice = Math.max(...prices);
   const priceRange = maxPrice - minPrice;
   const xStep = 640 / (goldChartPoints.length - 1);
-  const points = goldChartPoints.map((point, index) => {
+  const chartPoints = goldChartPoints.map((point, index) => {
     const x = index * xStep;
-    const y = priceRange === 0 ? 90 : 160 - ((point.price - minPrice) / priceRange) * 140;
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
+    const y = priceRange === 0 ? 92 : 132 - ((point.price - minPrice) / priceRange) * 80;
+    return { x, y, price: point.price, time: point.time };
   });
+  const points = chartPoints.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`);
 
   spotChartLine.setAttribute("d", `M ${points.join(" L ")}`);
+  renderChartMarkers([
+    { label: "高", type: "high", ...chartPoints[prices.indexOf(maxPrice)] },
+    { label: "低", type: "low", ...chartPoints[prices.indexOf(minPrice)] },
+  ]);
 
   const change = lastPrice - firstPrice;
   const changePercent = firstPrice > 0 ? (change / firstPrice) * 100 : 0;
@@ -408,5 +482,103 @@ function renderSpotChart(state = "loading") {
   spotChartLine.dataset.trend = trend;
   spotChartChange.dataset.trend = trend;
   spotChartChange.textContent = `${sign}${formatResult.format(change)} (${sign}${changePercent.toFixed(2)}%)`;
-  spotChartMeta.textContent = `XAU/USD 现货，过去 24 小时，${goldChartPoints.length} 个 5 分钟点`;
+  spotChartMeta.textContent = `XAU/USD 现货，${chartRange.title}，${goldChartPoints.length} 个${chartRange.pointLabel}`;
+}
+
+function renderChartMarkers(markers) {
+  const namespace = "http://www.w3.org/2000/svg";
+  const rate = rateMode === "manual" ? Number(rateInput.value) : exchangeRate;
+  const hasValidRate = Number.isFinite(rate) && rate > 0;
+  spotChartMarkers.replaceChildren();
+
+  markers.forEach((marker) => {
+    const group = document.createElementNS(namespace, "g");
+    const isHigh = marker.type === "high";
+    const cnyPrice = hasValidRate ? (marker.price * rate) / TROY_OUNCE_GRAMS : null;
+    const labelText = hasValidRate
+      ? `$${formatResult.format(marker.price)} | ¥${formatResult.format(cnyPrice)}`
+      : `$${formatResult.format(marker.price)} | ¥--`;
+    const labelWidth = Math.min(Math.max(labelText.length * 7.8 + 22, 154), 220);
+    const labelHeight = 26;
+    const labelX = Math.min(Math.max(marker.x - labelWidth / 2, 0), 640 - labelWidth);
+    const labelY = isHigh ? marker.y - labelHeight - 8 : marker.y + 8;
+    const timeText = formatChartMarkerTime(marker.time);
+    const timeWidth = Math.min(Math.max(timeText.length * 7 + 14, 54), 106);
+    const timeX = Math.min(Math.max(marker.x - timeWidth / 2, 0), 640 - timeWidth);
+
+    group.classList.add("spot-chart-marker", isHigh ? "is-high" : "is-low");
+
+    const dot = document.createElementNS(namespace, "circle");
+    dot.setAttribute("cx", marker.x.toFixed(2));
+    dot.setAttribute("cy", marker.y.toFixed(2));
+    dot.setAttribute("r", "5");
+
+    const label = document.createElementNS(namespace, "g");
+    label.classList.add("spot-chart-marker-label");
+    label.setAttribute("transform", `translate(${labelX.toFixed(2)} ${labelY.toFixed(2)})`);
+
+    const rect = document.createElementNS(namespace, "rect");
+    rect.setAttribute("width", String(labelWidth));
+    rect.setAttribute("height", String(labelHeight));
+    rect.setAttribute("rx", "7");
+
+    const text = document.createElementNS(namespace, "text");
+    text.setAttribute("x", "10");
+    text.setAttribute("y", "17");
+    text.textContent = labelText;
+
+    const axis = document.createElementNS(namespace, "g");
+    axis.classList.add("spot-chart-marker-axis");
+
+    const tick = document.createElementNS(namespace, "line");
+    tick.setAttribute("x1", marker.x.toFixed(2));
+    tick.setAttribute("y1", "184");
+    tick.setAttribute("x2", marker.x.toFixed(2));
+    tick.setAttribute("y2", "192");
+
+    const timeBackground = document.createElementNS(namespace, "rect");
+    timeBackground.setAttribute("x", timeX.toFixed(2));
+    timeBackground.setAttribute("y", "196");
+    timeBackground.setAttribute("width", timeWidth.toFixed(2));
+    timeBackground.setAttribute("height", "18");
+    timeBackground.setAttribute("rx", "5");
+
+    const time = document.createElementNS(namespace, "text");
+    time.setAttribute("x", (timeX + timeWidth / 2).toFixed(2));
+    time.setAttribute("y", "209");
+    time.textContent = timeText;
+
+    label.append(rect, text);
+    axis.append(tick, timeBackground, time);
+    group.append(dot, label, axis);
+    spotChartMarkers.append(group);
+  });
+}
+
+function formatChartMarkerTime(timestamp) {
+  const date = new Date(timestamp);
+
+  if (activeChartRangeKey === "1D") {
+    return new Intl.DateTimeFormat("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
+
+  if (activeChartRangeKey === "1W" || activeChartRangeKey === "1M") {
+    return new Intl.DateTimeFormat("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "2-digit",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
 }

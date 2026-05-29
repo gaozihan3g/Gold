@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>黄金价格换算器</title>
-    <link rel="stylesheet" href="./styles.css?v=20260528-refresh" />
+    <link rel="stylesheet" href="./styles.css?v=20260529-axis" />
   </head>
   <body>
     <main class="app-shell">
@@ -56,7 +56,7 @@
           <div class="spot-chart-panel" aria-labelledby="spot-chart-title">
             <div class="spot-chart-header">
               <div>
-                <h3 id="spot-chart-title">现货过去24小时</h3>
+                <h3 id="spot-chart-title">现货过去 1 天</h3>
                 <p id="spot-chart-meta">正在加载 XAU/USD 现货曲线</p>
               </div>
               <strong id="spot-chart-change">--</strong>
@@ -64,16 +64,27 @@
 
             <svg
               class="spot-chart"
-              viewBox="0 0 640 180"
+              viewBox="0 0 640 220"
               role="img"
-              aria-label="XAU/USD 现货黄金过去24小时曲线图"
+              aria-label="XAU/USD 现货黄金曲线图"
               preserveAspectRatio="none"
             >
               <line class="spot-chart-grid" x1="0" y1="45" x2="640" y2="45" />
               <line class="spot-chart-grid" x1="0" y1="90" x2="640" y2="90" />
               <line class="spot-chart-grid" x1="0" y1="135" x2="640" y2="135" />
+              <line class="spot-chart-axis" x1="0" y1="190" x2="640" y2="190" />
               <path id="spot-chart-line" d="" />
+              <g id="spot-chart-markers"></g>
             </svg>
+
+            <div class="chart-range-tabs" role="tablist" aria-label="金价曲线时间段">
+              <button type="button" data-chart-range="1D" role="tab" aria-selected="true">1D</button>
+              <button type="button" data-chart-range="1W" role="tab" aria-selected="false">1W</button>
+              <button type="button" data-chart-range="1M" role="tab" aria-selected="false">1M</button>
+              <button type="button" data-chart-range="3M" role="tab" aria-selected="false">3M</button>
+              <button type="button" data-chart-range="6M" role="tab" aria-selected="false">6M</button>
+              <button type="button" data-chart-range="1Y" role="tab" aria-selected="false">1Y</button>
+            </div>
           </div>
         </section>
 
@@ -168,6 +179,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=20260528-refresh"></script>
+    <script src="./app.js?v=20260529-axis"></script>
   </body>
 </html>
